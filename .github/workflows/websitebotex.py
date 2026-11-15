@@ -42,17 +42,21 @@ options.add_argument(
 service = Service("/usr/local/bin/chromedriver")
 driver = webdriver.Chrome(options=options, service=service)
 
+# Match ONLY visible Start, Unarchive, or Stop buttons (by text, aria-label, or title)
 CONTROL_BUTTON_XPATH = (
     "//button["
-    "contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'start world') or "
+    "contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'start') or "
     "contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'unarchive') or "
-    "contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'stop world') or "
-    "contains(@class, 'btn-primary') or contains(@class, 'btn-error')"
+    "contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'stop') or "
+    "contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'start') or "
+    "contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'stop') or "
+    "contains(translate(@title, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'start') or "
+    "contains(translate(@title, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'stop')"
     "]"
 )
 
 
-def save_debug(name="error"):
+def save_debug(name="debug"):
     try:
         driver.save_screenshot(f"{name}.png")
         with open(f"{name}.html", "w", encoding="utf-8") as f:
@@ -60,6 +64,15 @@ def save_debug(name="error"):
         print(f"Saved {name}.png and {name}.html (URL: {driver.current_url})")
     except Exception as e:
         print(f"Failed to save debug files: {e}")
+
+
+def get_button_label(el):
+    return (
+        el.text.strip()
+        or el.get_attribute("aria-label")
+        or el.get_attribute("title")
+        or ""
+    ).strip()
 
 
 def run_loginflow(usernamesec, passwordsec):
@@ -109,10 +122,11 @@ def run_loginflow(usernamesec, passwordsec):
 
 def open_world_controls():
     try:
-        WebDriverWait(driver, 6).until(
-            EC.presence_of_element_located((By.XPATH, CONTROL_BUTTON_XPATH))
+        return WebDriverWait(driver, 6).until(
+            EC.element_to_be_clickable((By.XPATH, CONTROL_BUTTON_XPATH))
         )
     except Exception:
+        # If /dashboard shows a World Overview card first, click into the world link
         world_links = driver.find_elements(
             By.CSS_SELECTOR, "a[href*='/dashboard/'], a[href*='/world'], a[href*='/server']"
         )
@@ -121,8 +135,8 @@ def open_world_controls():
             driver.execute_script("arguments[0].click();", world_links[0])
             time.sleep(3)
 
-    return WebDriverWait(driver, 20).until(
-        EC.presence_of_element_located((By.XPATH, CONTROL_BUTTON_XPATH))
+    return WebDriverWait(driver, 15).until(
+        EC.element_to_be_clickable((By.XPATH, CONTROL_BUTTON_XPATH))
     )
 
 
@@ -146,37 +160,46 @@ try:
     with open(MARKER_FILE, "w") as f:
         f.write("session valid")
 
-    btn_text = button.text.strip().lower()
-    btn_class = button.get_attribute("class") or ""
+    label = get_button_label(button)
+    btn_text = label.lower()
 
-    if "stop" in btn_text or "btn-error" in btn_class:
-        print("Stop button found — world already running.")
+    if "stop" in btn_text:
+        print(f"Stop button found ('{label}') — world already running.")
     elif "unarchive" in btn_text:
         driver.execute_script("arguments[0].scrollIntoView(true);", button)
         driver.execute_script("arguments[0].click();", button)
-        print(f"✅ Clicked '{button.text.strip()}' — waiting for Start button...")
+        print(f"✅ Clicked '{label}' — waiting for Start button...")
         time.sleep(6)
 
-        start_btns = driver.find_elements(
-            By.XPATH,
-            "//button[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'start world') or contains(@class, 'btn-primary')]",
+        start_btn = WebDriverWait(driver, 15).until(
+            EC.element_to_be_clickable(
+                (
+                    By.XPATH,
+                    "//button[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'start') "
+                    "or contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'start')]",
+                )
+            )
         )
-        if start_btns:
-            driver.execute_script("arguments[0].click();", start_btns[0])
-            print(f"✅ Clicked '{start_btns[0].text.strip()}'!")
-            time.sleep(3)
+        driver.execute_script("arguments[0].click();", start_btn)
+        print(f"✅ Clicked '{get_button_label(start_btn)}'!")
+        time.sleep(4)
     else:
         driver.execute_script("arguments[0].scrollIntoView(true);", button)
         driver.execute_script("arguments[0].click();", button)
-        print(f"✅ Clicked '{button.text.strip()}'!")
-        time.sleep(3)
+        print(f"✅ Clicked '{label}'!")
+        time.sleep(4)
+
+    save_debug("after_click")
 
 except Exception as e:
     print(f"❌ Failed with error: {e}")
     for el in driver.find_elements(By.XPATH, "//button | //a"):
-        txt = el.text.strip().replace("\n", " ")
-        if txt:
-            print(f"Found <{el.tag_name}> text='{txt}' class='{el.get_attribute('class')}' href='{el.get_attribute('href')}'")
+        txt = get_button_label(el).replace("\n", " ")
+        if txt or el.is_displayed():
+            print(
+                f"Found <{el.tag_name}> visible={el.is_displayed()} "
+                f"text='{txt}' class='{el.get_attribute('class')}' href='{el.get_attribute('href')}'"
+            )
     save_debug("error")
     sys.exit(1)
 
