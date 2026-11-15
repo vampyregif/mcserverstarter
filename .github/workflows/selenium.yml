@@ -1,4 +1,4 @@
-name: Run Selenium Script 
+name: Run Selenium Script
 
 on:
   push:
@@ -12,7 +12,7 @@ on:
       use_session_cache:
         description: "Use session cache"
         required: false
-        default: "false"
+        default: "true"
       start_or_stop:
         description: "start or stop"
         required: false
@@ -34,7 +34,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-          
+
       - name: Cache pip dependencies
         uses: actions/cache@v3
         with:
@@ -42,7 +42,7 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('.github/workflows/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
-            
+
       - name: Install Dependencies
         run: pip install -r .github/workflows/requirements.txt
 
@@ -62,12 +62,10 @@ jobs:
         if: steps.chrome-cache.outputs.cache-hit != 'true'
         id: install-chrome
         run: |
-          # Get Latest Stable Chrome Version
           LATEST_VERSION=$(curl -s https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json | jq -r '.channels.Stable.version')
           echo "chrome_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
           echo "Latest Chrome version: $LATEST_VERSION"
 
-          # Intall Chrome and Chrome driver
           CHROME_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${LATEST_VERSION}/linux64/chrome-linux64.zip"
           wget "$CHROME_URL" -O chrome.zip
           unzip -q chrome.zip
@@ -75,7 +73,6 @@ jobs:
           sudo chmod +x /opt/chrome/chrome
           sudo ln -sf /opt/chrome/chrome /usr/bin/google-chrome
 
-          # Install ChromeDriver to /usr/local/bin
           DRIVER_URL="https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/${LATEST_VERSION}/linux64/chromedriver-linux64.zip"
           wget "$DRIVER_URL" -O chromedriver.zip
           unzip -q chromedriver.zip
@@ -120,7 +117,7 @@ jobs:
           else
             echo "valid=false" >> $GITHUB_OUTPUT
           fi
-      
+
       - name: Save session cache
         if: ${{ inputs.use_session_cache == 'true' && steps.session-check.outputs.valid == 'true' }}
         uses: actions/cache/save@v4
@@ -128,3 +125,13 @@ jobs:
         with:
           path: /tmp/seedloaf-session
           key: seedloaf-session-cache-${{ github.run_number }}
+
+      - name: Upload Debug Files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selenium-debug
+          path: |
+            *.png
+            *.html
+          if-no-files-found: ignore
